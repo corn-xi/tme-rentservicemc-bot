@@ -1,0 +1,10 @@
+version: "3.9"
+services:
+  tme-rentservicemc-bot:
+    build: .
+    container_name: rentservice_bot
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    restart: unless-stopped
