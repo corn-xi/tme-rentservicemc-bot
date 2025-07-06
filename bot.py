@@ -60,7 +60,13 @@ def load_counter() -> int:
         with open("data/counter.json", "r", encoding="utf-8") as f:
             data = json.load(f)
             return data.get("counter", 1)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFounError:
+        initial = int(os.getenv("INITIAL_COUNTER_VALUE", "1"))
+        save_counter(initial)
+        logger.info(f"[counter] counter.json was not found, used counter value from the environment: {initial}")
+        return initial
+    except json.JSONDecodeError:
+        logger.warning("[counter] reading error counter.json, counter value reset to 1")
         return 1
 
 
@@ -69,8 +75,9 @@ def save_counter(counter: int) -> None:
     try:
         with open("data/counter.json", "w", encoding="utf-8") as f:
             json.dump({"counter": counter}, f, ensure_ascii=False)
+        logger.info(f"[counter] counter value saved: {counter}")
     except Exception as e:
-        logger.error(f"Failed to save counter to file: {e}")
+        logger.error(f"[counter] failed to save counter to file: {e}")
 
 
 def save_request_to_file(data: Dict[str, Any]) -> None:
@@ -249,9 +256,9 @@ async def confirmation(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
 
-    receiver = os.getenv("USER_ID")
-    if not receiver:
-        raise RuntimeError("USER_ID is not set in environment variables.")
+    recipient_chat = os.getenv("RECIPIENT_CHAT_ID")
+    if not recipient_chat:
+        raise RuntimeError("RECIPIENT_CHAT_ID is not set in environment variables.")
 
     if query.data == "cancel":
         return await start(update, context)
@@ -260,9 +267,9 @@ async def confirmation(update: Update, context: CallbackContext):
         if 'application_counter' not in context.application.bot_data:
             context.application.bot_data['application_counter'] = load_counter()
         
-        number = context.application.bot_data.get("application_counter", 1)
-        context.application.bot_data["application_counter"] = number + 1
-        save_counter(number + 1)
+        counter = context.application.bot_data.get("application_counter", 1)
+        context.application.bot_data["application_counter"] = counter + 1
+        save_counter(counter + 1)
         
         user = query.from_user
         address = context.user_data["address"]
@@ -271,14 +278,14 @@ async def confirmation(update: Update, context: CallbackContext):
         files = context.user_data.get("files", [])
         file_types = context.user_data.get("file_types", [])
 
-        full_message = (f"\U0001F4DF Зарегистрировано новое обращение <code>#{number}</code>.\n\n"
+        full_message = (f"\U0001F4DF Зарегистрировано новое обращение <code>#{counter}</code>.\n\n"
                         f"Объект: <b>{address}</b>.\n"
                         f"Контактные данные отправителя: {phone} ({user.mention_html()}).\n\n"
                         f"{text}\n")
                         
         save_request_to_file({
             "timestamp": datetime.now().isoformat(),
-            "number": number,
+            "counter": counter,
             "user": user.username or user.full_name,
             "user_id": user.id,
             "address": address,
@@ -288,29 +295,29 @@ async def confirmation(update: Update, context: CallbackContext):
             "file_types": file_types
         })
         
-        # Send message to receiver
-        await context.bot.send_message(chat_id=receiver, text=full_message, parse_mode="HTML")
+        # Send message to recipient_chat
+        await context.bot.send_message(chat_id=recipient_chat, text=full_message, parse_mode="HTML")
         
         # Send files if any
         media_docs = [InputMediaDocument(media=fid) for fid, t in zip(files, file_types) if t == "document"]
         media_photos = [InputMediaPhoto(media=fid) for fid, t in zip(files, file_types) if t == "photo"]
 
         if media_docs:
-            await context.bot.send_media_group(chat_id=receiver, media=media_docs)
+            await context.bot.send_media_group(chat_id=recipient_chat, media=media_docs)
         if media_photos:
-            await context.bot.send_media_group(chat_id=receiver, media=media_photos)
+            await context.bot.send_media_group(chat_id=recipient_chat, media=media_photos)
             
         # Remove inline keyboard from preview message
         await query.edit_message_reply_markup(reply_markup=None)
         
-        # Send confirmation message with success status AND "New Request" button
+        # Send confirmation message with success status and "New Request" button
         new_request_button = InlineKeyboardMarkup([[
             InlineKeyboardButton("Новое обращение", callback_data="new_request")
         ]])
         
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=f"\U0001F3F7 Спасибо. Ваше обращение <code>#{number}</code> зарегистрировано. Мы свяжемся с Вами.",
+            text=f"\U0001F3F7 Спасибо. Ваше обращение <code>#{counter}</code> зарегистрировано. Мы свяжемся с Вами.",
             reply_markup=new_request_button,
             parse_mode="HTML"
         )
