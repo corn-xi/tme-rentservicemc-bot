@@ -1,8 +1,15 @@
 import os
 import json
 import logging
+from threading import Thread
 from datetime import datetime
 from typing import Dict, Any
+
+from flask import (
+    Flask,
+    request,
+    abort
+)
 
 from telegram import (
     Update,
@@ -39,16 +46,12 @@ ADDRESS_LIST = [
     "Крапивный переулок, 3А"
 ]
 
-RECEIVER_CHAT_ID = os.getenv("TELEGRAM_RECEIVER_CHAT_ID")
-
-if not RECEIVER_CHAT_ID:
-    raise ValueError("TELEGRAM_RECEIVER_CHAT_ID is not set in environment variables.")
-
 
 def build_application() -> Application:
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    token = os.getenv("BOT_TOKEN")
     if not token:
-        raise ValueError("TELEGRAM_BOT_TOKEN is not set in environment variables.")
+        raise RuntimeError("BOT_TOKEN is not set in environment variables.")
+
     return Application.builder().token(token).build()
 
 
@@ -245,7 +248,11 @@ async def new_request(update: Update, context: CallbackContext):
 async def confirmation(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
-    
+
+    receiver = os.getenv("USER_ID")
+    if not receiver:
+        raise RuntimeError("USER_ID is not set in environment variables.")
+
     if query.data == "cancel":
         return await start(update, context)
 
@@ -282,16 +289,16 @@ async def confirmation(update: Update, context: CallbackContext):
         })
         
         # Send message to receiver
-        await context.bot.send_message(chat_id=RECEIVER_CHAT_ID, text=full_message, parse_mode="HTML")
+        await context.bot.send_message(chat_id=receiver, text=full_message, parse_mode="HTML")
         
         # Send files if any
         media_docs = [InputMediaDocument(media=fid) for fid, t in zip(files, file_types) if t == "document"]
         media_photos = [InputMediaPhoto(media=fid) for fid, t in zip(files, file_types) if t == "photo"]
 
         if media_docs:
-            await context.bot.send_media_group(chat_id=RECEIVER_CHAT_ID, media=media_docs)
+            await context.bot.send_media_group(chat_id=receiver, media=media_docs)
         if media_photos:
-            await context.bot.send_media_group(chat_id=RECEIVER_CHAT_ID, media=media_photos)
+            await context.bot.send_media_group(chat_id=receiver, media=media_photos)
             
         # Remove inline keyboard from preview message
         await query.edit_message_reply_markup(reply_markup=None)
@@ -347,6 +354,25 @@ async def cancel(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 
+def flask_app_from_bot() -> None:
+    flask_app = Flask(__name__)
+    
+    def ping() -> str:
+        key = request.args.get("key")
+        if key != os.getenv("PING_KEY"):
+            logging.warning(f"Unauthorized ping attempt from {request.remote_addr} with key={key}")
+            abort(403)
+        logging.info(f"Received authorized ping from {request.remote_addr}")
+
+        return "It's Alive!"
+
+    def run_flask() -> None:
+        flask_app.run(host="0.0.0.0", port=8080)
+
+
+    Thread(target=run_flask).start()
+
+
 def main():
     application = build_application()
     application.bot_data['application_counter'] = load_counter()
@@ -374,6 +400,7 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(new_request, pattern=r"^new_request$"))
 
+    flask_app_from_bot()
     application.run_polling()
 
 if __name__ == '__main__':
