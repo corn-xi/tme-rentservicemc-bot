@@ -60,7 +60,7 @@ def load_counter() -> int:
         with open("data/counter.json", "r", encoding="utf-8") as f:
             data = json.load(f)
             return data.get("counter", 1)
-    except FileNotFounError:
+    except FileNotFoundError:
         initial = int(os.getenv("INITIAL_COUNTER_VALUE", "1"))
         save_counter(initial)
         logger.info(f"[counter] counter.json was not found, used counter value from the environment: {initial}")
