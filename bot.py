@@ -357,6 +357,7 @@ async def cancel(update: Update, context: CallbackContext):
 def flask_app_from_bot() -> None:
     flask_app = Flask(__name__)
     
+    @flask_app.route("/ping")
     def ping() -> str:
         key = request.args.get("key")
         if key != os.getenv("PING_KEY"):
