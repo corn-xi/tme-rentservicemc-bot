@@ -1,7 +1,10 @@
+.DS_Store
 
-__pycache__/
-
-.env
-*.swp
+venv/
 
 data/
+
+.env
+
+*.swp
+__pycache__/

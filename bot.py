@@ -1,15 +1,15 @@
-import os
-import json
 import logging
+import os
+import tempfile
+
+import json
 from threading import Thread
 from datetime import datetime
 from typing import Dict, Any
+from reply import handle_group_reply
+from pathlib import Path
 
-from flask import (
-    Flask,
-    request,
-    abort
-)
+from flask import Flask, request, abort
 
 from telegram import (
     Update,
@@ -28,12 +28,15 @@ from telegram.ext import (
     filters,
     ConversationHandler,
     CallbackContext,
-    CallbackQueryHandler
+    CallbackQueryHandler,
+    ContextTypes
 )
 
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG) # change to INFO
 logger = logging.getLogger(__name__)
+
+GROUP_ID = os.getenv("GROUP_ID")
 
 (SELECT_ADDRESS, INPUT_TEXT, UPLOAD_FILES, INPUT_PHONE, CONFIRMATION) = range(5)
 
@@ -80,6 +83,10 @@ def save_counter(counter: int) -> None:
         logger.error(f"[counter] failed to save counter to file: {e}")
 
 
+
+
+"""
+before:
 def save_request_to_file(data: Dict[str, Any]) -> None:
     os.makedirs("data", exist_ok=True)
     try:
@@ -88,6 +95,84 @@ def save_request_to_file(data: Dict[str, Any]) -> None:
             f.write("\n")
     except Exception as e:
         logger.error(f"Failed to save request to file: {e}")
+
+after:
+def save_request_to_file(new_request: dict) -> None:
+    path = Path("data/requests.json")
+    os.makedirs(path.parent, exist_ok=True)
+    try:
+        if path.exists():
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            data = []
+
+        data.append(new_request)
+
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении заявки: {e}")
+
+after:
+"""
+def save_request_to_file(new_request: dict) -> None:
+    """
+    Атомарное сохранение заявки в файл requests.json
+    
+    Args:
+        new_request: Словарь с данными заявки, содержащий:
+            - timestamp: ISO строка времени создания
+            - counter: Уникальный номер заявки
+            - user: Имя пользователя или username
+            - user_id: ID пользователя в Telegram
+            - address: Адрес из заявки
+            - text: Текст заявки
+            - phone: Телефон из заявки
+            - files: Список файлов (если есть)
+            - file_types: Типы файлов (если есть)
+            - status: Статус заявки ("open" по умолчанию)
+    """
+    path = Path("data/requests.json")
+    
+    try:
+        # Создаем директорию если не существует
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Читаем существующие данные
+        if path.exists():
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            data = []
+        
+        # Устанавливаем статус по умолчанию если не указан
+        if "status" not in new_request:
+            new_request["status"] = "open"
+        
+        # Добавляем новую заявку
+        data.append(new_request)
+        
+        # Атомарная запись через временный файл
+        with tempfile.NamedTemporaryFile(
+            "w", delete=False, dir=path.parent, encoding="utf-8", suffix=".tmp"
+        ) as tf:
+            json.dump(data, tf, ensure_ascii=False, indent=2)
+            temp_path = Path(tf.name)
+        
+        # Атомарная замена файла
+        temp_path.replace(path)
+        
+        logger.info(f"Заявка №{new_request.get('counter')} успешно сохранена в {path.name}")
+        
+    except (OSError, json.JSONDecodeError) as e:
+        logger.error(f"Ошибка при сохранении заявки: {e}")
+        # Удаляем временный файл если он остался
+        if 'temp_path' in locals() and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+        raise
+
+
 
 
 def build_address_keyboard() -> InlineKeyboardMarkup:
@@ -256,9 +341,9 @@ async def confirmation(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
 
-    recipient_chat = os.getenv("RECIPIENT_CHAT_ID")
+    recipient_chat = os.getenv("GROUP_ID")
     if not recipient_chat:
-        raise RuntimeError("RECIPIENT_CHAT_ID is not set in environment variables.")
+        raise RuntimeError("GROUP_ID is not set in environment variables.")
 
     if query.data == "cancel":
         return await start(update, context)
@@ -283,6 +368,8 @@ async def confirmation(update: Update, context: CallbackContext):
                         f"Контактные данные отправителя: {phone} ({user.mention_html()}).\n\n"
                         f"{text}\n")
                         
+        """
+        before:
         save_request_to_file({
             "timestamp": datetime.now().isoformat(),
             "counter": counter,
@@ -293,6 +380,20 @@ async def confirmation(update: Update, context: CallbackContext):
             "phone": phone,
             "files": files,
             "file_types": file_types
+        })
+        after:
+        """
+        save_request_to_file({
+            "timestamp": datetime.now().isoformat(),
+            "number": counter,
+            "user": user.username or user.full_name,
+            "user_id": user.id,
+            "address": address,
+            "text": text,
+            "phone": phone,
+            "files": files,
+            "file_types": file_types,
+            "status": 1
         })
         
         # Send message to recipient_chat
@@ -407,6 +508,13 @@ def main():
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(new_request, pattern=r"^new_request$"))
+
+
+    application.add_handler(MessageHandler(
+        filters.REPLY & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP),
+        handle_group_reply
+    ))
+
 
     flask_app_from_bot()
     application.run_polling()
