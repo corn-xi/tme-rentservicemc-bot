@@ -23,16 +23,16 @@ def get_request_number(request: str) -> int | None:
 
 def get_user_id(request_number: int) -> int | None:
     try:
-        data = _load_json(Path("data/requests.json"))
+        data = _load_json(Path("/data/requests.json"))
         if not isinstance(data, list):
-            logger.error("'data/requests.json' contains incorrect data.")
+            logger.error("'/data/requests.json' contains incorrect data.")
             return None
 
         for request in data:
             if request.get("number") == request_number:
                 return request.get("user_id")
 
-        logger.warning(f"Request #{request_number} was not found in the 'data/requests.json'.")
+        logger.warning(f"Request #{request_number} was not found in the '/data/requests.json'.")
     except Exception as e:
         logger.error(f"Error retrieving the User ID from Request #{request_number} ({e}).")
 

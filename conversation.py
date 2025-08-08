@@ -22,7 +22,7 @@ def _load_json(path: Path) -> dict | list:
 Maybe, future features:
 
 def is_request_closed(request_number: int) -> bool:
-    data = _load_json(Path("data/requests.json"))
+    data = _load_json(Path("/data/requests.json"))
     try:
         if not isinstance(data, list):
             logger.error("'data/requests.json' contains incorrect data.")

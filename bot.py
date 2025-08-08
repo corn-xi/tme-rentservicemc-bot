@@ -63,7 +63,7 @@ def build_application() -> Application:
 
 def load_counter() -> int:
     try:
-        with open("data/counter.json", "r", encoding="utf-8") as f:
+        with open("/data/counter.json", "r", encoding="utf-8") as f:
             data = json.load(f)
             return data.get("counter", 1)
     except FileNotFoundError:
@@ -79,7 +79,7 @@ def load_counter() -> int:
 def save_counter(counter: int) -> None:
     os.makedirs("data", exist_ok=True)
     try:
-        with open("data/counter.json", "w", encoding="utf-8") as f:
+        with open("/data/counter.json", "w", encoding="utf-8") as f:
             json.dump({"counter": counter}, f, ensure_ascii=False)
         logger.info(f"[counter] counter value saved: {counter}")
     except Exception as e:
@@ -136,7 +136,7 @@ def save_request_to_file(new_request: dict) -> None:
             - file_types: Типы файлов (если есть)
             - status: Статус заявки ("open" по умолчанию)
     """
-    path = Path("data/requests.json")
+    path = Path("/data/requests.json")
     
     try:
         # Создаем директорию если не существует
